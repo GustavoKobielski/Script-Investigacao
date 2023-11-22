@@ -11,6 +11,8 @@ vSERVER = Tunnel.getInterface("lak_first")
 -----------------------------------------------------------------------------------------------------------------------------------------
 local servico = false
 local npcs = {}
+local text = {}
+local selectedMission = nil
 -----------------------------------------------------------------------------------------------------------------------------------------
 -- Iniciar trampo com blip
 -----------------------------------------------------------------------------------------------------------------------------------------
@@ -31,12 +33,17 @@ Citizen.CreateThread(function()
 						cfg.drawMarker(v)
 						if distance <= 2.0 then
 							cfg.drawTxt(v)
-							if IsControlJustPressed(0,38) then
-								investigacaoStart()
-								servico = true
-								print(servico)
-								TriggerEvent("Notify", "sucesso", "Você entrou em serviço.", 5000) -- arrumar
-							end
+							if IsControlJustPressed(0, cfg.botaoTrabalho) then
+                                servico = true
+                                selectedMission = SelectRandomMission()
+                                if selectedMission then
+                                    print("Missão selecionada: " .. selectedMission)
+                                    CreateNPC(selectedMission) -- Passe o índice da missão selecionada como argumento
+                                else
+                                    print("Nenhuma missão disponível.")
+                                end
+                                TriggerEvent("Notify", "sucesso", "Você entrou em serviço.", 5000)
+                            end
                         end
                     end
                 end
@@ -45,6 +52,7 @@ Citizen.CreateThread(function()
         Citizen.Wait(time)
     end
 end)
+
 -----------------------------------------------------------------------------------------------------------------------------------------
 -- Iniciar trampo com NUI
 -----------------------------------------------------------------------------------------------------------------------------------------
@@ -64,7 +72,7 @@ Citizen.CreateThread(function()
 						time = 5
 						cfg.drawMarker(v)
 						if distance <= 2.0 then
-							if IsControlJustPressed(0,38) then
+							if IsControlJustPressed(0,cfg.botaoTrabalho) then
 								local mc,level,exp = vSERVER.CheckLevel()
 								SetNuiFocus(true,true)
 								SendNUIMessage({ action = "showMenu", mc = mc, level = level, exp = exp, exp_por_level = exp_por_level, quantidade_de_blips = quantidade_de_blips })
@@ -107,6 +115,20 @@ Citizen.CreateThread(function()
 		end
 	end
 end)
+
+-----------------------------------------------------------------------------------------------------------------------------------------
+-- Selecionar missão aleatoria
+-----------------------------------------------------------------------------------------------------------------------------------------
+function SelectRandomMission()
+    local numMissions = #cfg.Casos
+    if numMissions > 0 then
+        local randomIndex = math.random(numMissions)
+        return randomIndex
+    else
+        return nil
+    end
+end
+
 -----------------------------------------------------------------------------------------------------------------------------------------
 -- Trabalho
 -----------------------------------------------------------------------------------------------------------------------------------------
@@ -137,50 +159,130 @@ end
 -----------------------------------------------------------------------------------------------------------------------------------------
 -- Função para conversar com o npc
 -----------------------------------------------------------------------------------------------------------------------------------------
-local Text = nil
-function interactWithNPC(ped)
+-- local Text = nil
+-- function interactWithNPC(ped)
+--     while true do
+--         Citizen.Wait(0)
+--         local pedCoords = GetEntityCoords(ped)
+--         local playerCoords = GetEntityCoords(PlayerPedId())
+        
+--         if #(playerCoords - pedCoords) < 2.0 then
+--             DrawText3D(pedCoords.x, pedCoords.y, pedCoords.z + 1.0, "Pressione E para conversar.")
+            
+--             if IsControlJustReleased(1, 51) then
+--                 if Text == nil then
+--                     Text = cfg.textosAleatorios[math.random(#cfg.textosAleatorios)]
+--                 end
+--                 -- Chama o evento do servidor
+--                 --showDialog(Text)
+--                 TriggerEvent("Notify","sucesso","NPC: "..Text,5)
+--             end
+--         else
+--             Text = nil
+--         end
+--     end
+-- end
+
+function interactWithNPC(ped, missionIndex, text)
     while true do
         Citizen.Wait(0)
         local pedCoords = GetEntityCoords(ped)
         local playerCoords = GetEntityCoords(PlayerPedId())
         
         if #(playerCoords - pedCoords) < 2.0 then
-            DrawText3D(pedCoords.x, pedCoords.y, pedCoords.z + 1.0, "Pressione E para conversar.")
+            DrawText3D(pedCoords.x, pedCoords.y, pedCoords.z + 1.0, "Pressione E para interagir.")
             
             if IsControlJustReleased(1, 51) then
-                if Text == nil then
-                    Text = cfg.textosAleatorios[math.random(#cfg.textosAleatorios)]
-                end
-                -- Chama o evento do servidor
-                --showDialog(Text)
-                TriggerEvent("Notify","sucesso","NPC: "..Text,5)
+                -- Chame o evento do servidor aqui com informações sobre a missão e o texto específico
+                TriggerServerEvent("InteractWithNPC", missionIndex, text)
             end
-        else
-            Text = nil
         end
     end
 end
 
------------------------------------------------------------------------------------------------------------------------------------------
--- Função para Inicializar do NPC
------------------------------------------------------------------------------------------------------------------------------------------
-function CreateNPC()
-	local model = GetHashKey(cfg.npc.model)
+
+
+function CreateNPC(missionIndex)
+    local model = GetHashKey(cfg.npc.model)
     RequestModel(model)
     while not HasModelLoaded(model) do
         Wait(1)
     end
 
-    local ped = CreatePed(4, model, cfg.npc.coords.x, cfg.npc.coords.y, cfg.npc.coords.z, 0.0, false, true)
-    SetPedFleeAttributes(ped, 0, 0)
-    SetPedDropsWeaponsWhenDead(ped, false)
-    SetEntityInvincible(ped, true)
-    SetBlockingOfNonTemporaryEvents(ped, true)
-    FreezeEntityPosition(ped, true)
+    local missionData = cfg.Casos[missionIndex]
 
-	table.insert(npcs, ped)
-    interactWithNPC(ped) -- Inicia a interação
+    local npcCount = 0
+
+    for _, servicoData in pairs(missionData.servicos) do
+        local x, y, z = servicoData[1], servicoData[2], servicoData[3]
+        local ped = CreatePed(4, model, x, y, z, 0.0, false, true)
+        SetPedFleeAttributes(ped, 0, 0)
+        SetPedDropsWeaponsWhenDead(ped, false)
+        SetEntityInvincible(ped, true)
+        SetBlockingOfNonTemporaryEvents(ped, true)
+        FreezeEntityPosition(ped, true)
+
+		print(servicoData[1], servicoData[2], servicoData[3])
+
+        local randomText = cfg.textosAleatorios[math.random(#cfg.textosAleatorios)]
+        table.insert(npcs, { ped = ped, text = randomText })
+
+        npcCount = npcCount + 1
+
+        if npcCount >= 6 then
+            return
+        end
+
+		
+    end
 end
+
+
+
+
+
+
+
+
+
+
+-----------------------------------------------------------------------------------------------------------------------------------------
+-- Função para Inicializar do NPC
+-----------------------------------------------------------------------------------------------------------------------------------------
+-- function CreateNPC()
+-- 	local model = GetHashKey(cfg.npc.model)
+--     RequestModel(model)
+--     while not HasModelLoaded(model) do
+--         Wait(1)
+--     end
+
+--     local ped = CreatePed(4, model, cfg.npc.coords.x, cfg.npc.coords.y, cfg.npc.coords.z, 0.0, false, true)
+-- 	local ped2 = CreatePed(4, model, cfg.npc.coords.x, cfg.npc.coords.y, cfg.npc.coords.z, 0.0, false, true)
+-- 	local ped3 = CreatePed(4, model, cfg.npc.coords.x, cfg.npc.coords.y, cfg.npc.coords.z, 0.0, false, true)
+-- 	local ped4 = CreatePed(4, model, cfg.npc.coords.x, cfg.npc.coords.y, cfg.npc.coords.z, 0.0, false, true)
+-- 	local ped5 = CreatePed(4, model, cfg.npc.coords.x, cfg.npc.coords.y, cfg.npc.coords.z, 0.0, false, true)
+-- 	local ped6 = CreatePed(4, model, cfg.npc.coords.x, cfg.npc.coords.y, cfg.npc.coords.z, 0.0, false, true)
+--     SetPedFleeAttributes(ped, 0, 0)
+--     SetPedDropsWeaponsWhenDead(ped, false)
+--     SetEntityInvincible(ped, true)
+--     SetBlockingOfNonTemporaryEvents(ped, true)
+--     FreezeEntityPosition(ped, true)
+
+-- 	table.insert(npcs, ped)
+-- 	table.insert(npcs, ped2)
+-- 	table.insert(npcs, ped3)
+-- 	table.insert(npcs, ped4)
+-- 	table.insert(npcs, ped5)
+-- 	table.insert(npcs, ped6)
+
+-- 	print(npcs[1])
+-- 	print(npcs[2])
+-- 	print(npcs[3])
+-- 	print(npcs[4])
+-- 	print(npcs[5])
+-- 	print(npcs[6])
+--     interactWithNPC(ped) -- Inicia a interação
+-- end
 -----------------------------------------------------------------------------------------------------------------------------------------
 -- Função que deleta os npcs criados
 -----------------------------------------------------------------------------------------------------------------------------------------
